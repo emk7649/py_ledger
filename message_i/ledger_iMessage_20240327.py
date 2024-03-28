@@ -28,7 +28,7 @@ def makeCSV(items):
 
     # sort
     lines.sort(key = lambda x:x[1])
-    lines.insert(0, ['입출', '날짜', '가격', '결제도구', '업체', '카테고리', '세부사항'])
+    lines.insert(0, ['입출', '날짜', '가격KRW', '가격currency', '결제도구', '업체', '카테고리', '세부사항'])
     for item in lines_exception :  # category exception 추가
         lines.append(item)
 

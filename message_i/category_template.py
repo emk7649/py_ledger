@@ -7,7 +7,10 @@ from dateutil.relativedelta import relativedelta
 import FinanceDataReader as fdr
 usd = fdr.DataReader('USD/KRW', '2018-01-01')['Close']
 jpy = fdr.DataReader('JPY/KRW', '2018-01-01')['Close']
-exchange_rate = 0.04
+cny = 190 #위 코드로 cny를 불러올 때 문제가 있어 일단 하드코딩
+gbp = 1700
+aud = 900
+exchange_rate = 1.04
 
 # vscode에서 현재경로 문제로 인해 추가
 folder_path = os.path.dirname(os.path.abspath(__file__))
@@ -65,13 +68,12 @@ class category_template():
 		self.templates.append(payment_template20)
 		self.templates.append(payment_template26)
 		self.templates.append(payment_template27)
-		self.templates.append(payment_template28)
 
 		self.templates.append(payment_template30)
 		self.templates.append(payment_template36)
-		self.templates.append(payment_template37)
-		self.templates.append(payment_template38)
-		self.templates.append(payment_template39)
+		# self.templates.append(payment_template37)
+		# self.templates.append(payment_template38)
+		# self.templates.append(payment_template39)
 
 	def getDate(self, dateStr):
 		if len(dateStr) == 11:  # 06.29 18:00
@@ -109,20 +111,34 @@ class category_template():
 	# todo:2024.03.26, krw 환산금액만 반환, 원본currency도 추가하면 좋을 듯..
 	# input date는 정확함
 	def getExchange(self, currency, amount, date):
+		exchangeList = []
 		if currency == "KRW":
 			amountInKRW = int(amount.replace(',',''))
+		elif currency == "CNY":
+			amountInKRW = float(amount.replace(',','')) * cny * exchange_rate
+		elif currency == "AUD":
+			amountInKRW = float(amount.replace(',','')) * aud * exchange_rate
+		elif currency == "GBP":
+			amountInKRW = float(amount.replace(',','')) * gbp * exchange_rate
 		elif currency == "USD":
-			if(date.strftime("%Y-%m-%d") in usd.index):
-				usd_day = usd[date.strftime("%Y-%m-%d")]
-			else:
-				while not date.strftime("%Y-%m-%d") in usd.index:
-					date = date - relativedelta(days=1)
-				usd_day = usd[date.strftime("%Y-%m-%d")]
-			amountInKRW = int(float(amount) * usd_day * exchange_rate)
+			exchangeList = usd
+		elif currency == "JPY":
+			exchangeList = jpy
 		else:
 			amountInKRW = 999999999
+
+		if len(exchangeList) != 0:
+			if(date.strftime("%Y-%m-%d") in exchangeList.index):
+				exchange_day = exchangeList[date.strftime("%Y-%m-%d")]
+			else:
+				while not date.strftime("%Y-%m-%d") in exchangeList.index:
+					date = date - relativedelta(days=1)
+				exchange_day = exchangeList[date.strftime("%Y-%m-%d")]
+			amountInKRW = float(amount.replace(',','')) * exchange_day * exchange_rate
 		
 		result = "{:,}".format(amountInKRW)
+		if isinstance(amountInKRW, float):
+			result = "{:,.2f}".format(amountInKRW)
 		return result
 	
 	# res는 template-sort순서의 list의 list
@@ -136,25 +152,31 @@ class category_template():
 			regexes.append(template.approval)
 			regexes.append(template.cancel)
 
-		for regex in regexes:
-			searchObj = re.search(regex, data)
-			if searchObj is not None:
-				#print(searchObj)
-				#print(':')
-				#print(searchObj.group())
-				#print(':')
-				#print(searchObj.groups())
-				#print('')
-				res = template.sort(template, searchObj.groups())
-				if res[1] == '':
-					res[1] = g_date
-				else:
-					res[1] = self.getDate(res[1])
+			for regex in regexes:
+				searchObj = re.search(regex, data)
+				if searchObj is not None:
+					#print(searchObj)
+					#print(':')
+					#print(searchObj.group())
+					#print(':')
+					#print(searchObj.groups())
+					#print('')
+					res = template.sort(template, searchObj.groups())
 
-				# 아래 2코드 순서, 현재 : (Data with no date) after (Data with_year) 인 경우 with_year보다 this_year가 우선
-				g_date = res[1]
-				if(year > 0):
-					res[1] = datetime.datetime(year, res[1].month, res[1].day, res[1].hour, res[1].minute, res[1].second)
+					# getDate()
+					if res[1] == '':
+						res[1] = g_date
+					else:
+						res[1] = self.getDate(res[1])
+
+					# 아래 2코드 순서, 현재 : (Data with no date) after (Data with_year) 인 경우 with_year보다 this_year가 우선
+					g_date = res[1]
+					if(year > 0):
+						res[1] = datetime.datetime(year, res[1].month, res[1].day, res[1].hour, res[1].minute, res[1].second)
+
+					# getExchange()
+					if res[2] == '' :
+						res[2] = self.getExchange(res[3][0:3], res[3][3:], res[1])
 
 		return res
 
@@ -184,13 +206,14 @@ class payment_template09():
 (\d{1,3}(?:,?\d{3})*)(?:원){0,1}
 (.*)\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, amount, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[2])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -224,13 +247,14 @@ class payment_template08():
 (.*)
 (입금) (\d{1,3}(?:,\d{3})*)원\n?(.*)\n?(.*)'''
 
-	# as-is: date, agent, approvale_cancel, amount, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: date, agent, approval_cancel, amount, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[2])
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[3])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[4])
@@ -258,13 +282,14 @@ class payment_template07():
 	cancel = r'''\[신한카드\] 자동납부 정상(취소) \w\w\w님 (\d{2}/\d{2}) \(일시불\) (\d{1,3}(?:,\d{3})*)원 \b(.*)
 ?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount,          agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, amount,          agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[2])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -290,13 +315,14 @@ class payment_template04():
 	approval = r'''\[현대카드\] 자동납부 (승인) \w\*\w님 \b(.*)\b (\d{1,3}(?:,\d{3})*)원\n?(.*)\n?(.*)'''
 	cancel   = r'''\[현대카드\] 자동납부 (취소) \w\*\w님 \b(.*)\b (\d{1,3}(?:,\d{3})*)원\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, agent, amount, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, agent, amount, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append('') # date blank
 		list.append(info_unsorted[2])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[3])
@@ -330,13 +356,14 @@ class payment_template10():
 (\d{2}/\d{2} \d{2}:\d{2})
 (.*)\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, amount, date, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, amount, date, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[2])
 		list.append(info_unsorted[1])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -362,13 +389,14 @@ class payment_template20():
 	approval = r'''\[신한체크(승인)\] \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2}) \(금액\)(\d{1,3}(?:,\d{3})*)원 \b(.*)\b\n?(.*)\n?(.*)'''
 	cancel   = r'''\[신한체크(취소)\] \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2}) \(금액\)(\d{1,3}(?:,\d{3})*)원 \b(.*)\b\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, amount, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[2])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -397,14 +425,21 @@ KRW (\d{1,3}(?:,\d{3})*)\b(.*)\b
 	cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
 KRW (\d{1,3}(?:,\d{3})*)\b(.*)\b
 ?(.*)\n?(.*)'''
+	#approval = r'''신한체크해외(승인) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
+	#cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
+#	approval = r'''신한체크해외(승인) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
+#(\d{1,3}(?:,\d{3})*\.\d{2}) 위안\b(.*)\b\n?(.*)\n?(.*)'''
+#	cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
+#(\d{1,3}(?:,\d{3})*\.\d{2}) 위안\b(.*)\b\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, amount, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
 		list.append(info_unsorted[2])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -427,54 +462,32 @@ class payment_template27():
 	count_cancel = 0
 	payment = '신한체크'
 	pay_method = ['승인', '취소']
-	approval = r'''신한체크해외(승인) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
-	cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
-
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
-	def sort(self, info_unsorted):
-		list = []
-		list.append(info_unsorted[0])
-		list.append(info_unsorted[1])
-		list.append(info_unsorted[2])
-		list.append(self.payment)
-		list.append(info_unsorted[3])
-		list.append(info_unsorted[4])
-		list.append(info_unsorted[5])
-		#print(list)
-
-		if(list[0] == self.pay_method[0]):
-			self.count_approval += 1
-		if(list[0] == self.pay_method[1]):
-			self.count_cancel += 1
-		return list
-
-	def print(self):
-		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
-		print(res)
-
-##############################################################################################
-class payment_template28():
-	count_approval = 0
-	count_cancel = 0
-	payment = '신한체크'
-	pay_method = ['승인', '취소']
+	#approval = r'''신한체크해외(승인) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
+	#cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})\n(\d{1,3}(?:,\d{3})*\.\d{2}) 달러\b(.*)\b\n?(.*)\n?(.*)'''
 	approval = r'''신한체크해외(승인) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
-(\d{1,3}(?:,\d{3})*\.\d{2}) 위안\b(.*)\b\n?(.*)\n?(.*)'''
-	cancel   = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
-(\d{1,3}(?:,\d{3})*\.\d{2}) 위안\b(.*)\b\n?(.*)\n?(.*)'''
+(\d{1,3}(?:,\d{3})*\.\d{2}) (\w{2})\b(.*)\b
+?(.*)\n?(.*)'''
+	cancel = r'''신한체크해외(취소) \w\*\w\(\d\d\d\d\) (\d{2}/\d{2} \d{2}:\d{2})
+(\d{1,3}(?:,\d{3})*\.\d{2}) (\w{2})\b(.*)\b
+?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, amount, currency, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
+		if info_unsorted[3] == '달러':
+			currency = 'USD'
+		elif info_unsorted[3] == '위안':
+			currency = 'CNY'
+
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
-		list.append(str(float(info_unsorted[2]) * 190))  #위안
+		list.append('')
+		list.append(''.join([currency, info_unsorted[2]]))  # currency + amount
 		list.append(self.payment)
-		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
 		list.append(info_unsorted[5])
+		list.append(info_unsorted[6])
 		#print(list)
 
 		if(list[0] == self.pay_method[0]):
@@ -486,6 +499,7 @@ class payment_template28():
 	def print(self):
 		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
 		print(res)
+
 ##############################################################################################
 class payment_template30():
 	count_approval = 0
@@ -505,13 +519,14 @@ class payment_template30():
 (.*?)
 누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, amount, date, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, amount, date, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[2])
 		list.append(info_unsorted[1])
+		list.append('')
 		list.append(self.payment)
 		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
@@ -537,9 +552,9 @@ class payment_template36():
 	approval = r'''\[현대카드\] 해외(승인)
 \w\*\w님
 (\d{2}/\d{2} \d{2}:\d{2})
-(?:KRW\s)?(\d{1,3}(?:,?\d{3})*)(?:\.\d{2})?
+([A-Z]{3})?\s?(\d{1,3}(?:,?\d{3})*)(?:\.\d{2})?
 (.*?)
-(.*)\n?(.*)'''
+?(.*)\n?(.*)'''
 	cancel = r'''\[현대카드\] 해외(취소)
 \w\*\w님
 (\d{2}/\d{2} \d{2}:\d{2})
@@ -547,17 +562,21 @@ class payment_template36():
 (.*?)
 (.*)\n?(.*)'''
 
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
+	# as-is: approval_cancel, date, currency, amount, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted):
+		currency = info_unsorted[2]
+		if currency == None:
+			currency = 'KRW'
 		list = []
 		list.append(info_unsorted[0])
 		list.append(info_unsorted[1])
-		list.append(info_unsorted[2])
+		list.append('')
+		list.append(''.join([currency, info_unsorted[3]]))  # currency + amount
 		list.append(self.payment)
-		list.append(info_unsorted[3])
 		list.append(info_unsorted[4])
 		list.append(info_unsorted[5])
+		list.append(info_unsorted[6])
 		#print(list)
 
 		if(list[0] == self.pay_method[0]):
@@ -570,133 +589,7 @@ class payment_template36():
 		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
 		print(res)
 		
-##############################################################################################
-class payment_template37():
-	count_approval = 0
-	count_cancel = 0
-	payment = '현대카드'
-	pay_method = ['승인', '취소']
-	approval = r'''\[현대카드\] 해외(승인)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-USD (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-	cancel = r'''\[현대카드\] 해외(취소)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-USD (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
-	def sort(self, info_unsorted):
-		list = []
-		list.append(info_unsorted[0])
-		list.append(info_unsorted[1])
-		list.append(info_unsorted[2])
-		list.append(self.payment)
-		list.append(info_unsorted[3])
-		list.append(info_unsorted[4])
-		list.append(info_unsorted[5])
-		#print(list)
-
-		if(list[0] == self.pay_method[0]):
-			self.count_approval += 1
-		if(list[0] == self.pay_method[1]):
-			self.count_cancel += 1
-		return list
-
-	def print(self):
-		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
-		print(res)
-		
-# ##############################################################################################
-class payment_template38():
-	count_approval = 0
-	count_cancel = 0
-	payment = '현대카드'
-	pay_method = ['승인', '취소']
-	approval = r'''\[현대카드\] 해외(승인)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-CNY (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-	cancel = r'''\[현대카드\] 해외(취소)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-CNY (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
-	def sort(self, info_unsorted):
-		list = []
-		list.append(info_unsorted[0])
-		list.append(info_unsorted[1])
-		list.append(str(float(info_unsorted[2]) * 190))  #위안
-		list.append(self.payment)
-		list.append(info_unsorted[3])
-		list.append(info_unsorted[4])
-		list.append(info_unsorted[5])
-		#print(list)
-
-		if(list[0] == self.pay_method[0]):
-			self.count_approval += 1
-		if(list[0] == self.pay_method[1]):
-			self.count_cancel += 1
-		return list
-
-	def print(self):
-		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
-		print(res)
-		
-# ##############################################################################################
-class payment_template39():
-	count_approval = 0
-	count_cancel = 0
-	payment = '현대카드'
-	pay_method = ['승인', '취소']
-	approval = r'''\[현대카드\] 해외(승인)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-JPY (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-	cancel = r'''\[현대카드\] 해외(취소)
-\w\*\w님
-(\d{2}/\d{2} \d{2}:\d{2})
-CNY (\d{1,3}(?:,?\d{3})*\.\d{2})
-(.*?)
-?(.*)\n?(.*)'''
-
-	# as-is: approvale_cancel, date, amount, agent, category, memo
-	# to-be: approvale_cancel, date, amount, payment, agent, category, memo
-	def sort(self, info_unsorted):
-		list = []
-		list.append(info_unsorted[0])
-		list.append(info_unsorted[1])
-		list.append(str(float(info_unsorted[2]) * 10))  #JPY
-		list.append(self.payment)
-		list.append(info_unsorted[3])
-		list.append(info_unsorted[4])
-		list.append(info_unsorted[5])
-		#print(list)
-
-		if(list[0] == self.pay_method[0]):
-			self.count_approval += 1
-		if(list[0] == self.pay_method[1]):
-			self.count_cancel += 1
-		return list
-
-	def print(self):
-		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
-		print(res)
-		
-# ##############################################################################################
+###############################################################################################
 
 
 if __name__ == '__main__':
