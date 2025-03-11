@@ -30,25 +30,23 @@ class example_manager():
 		key = ""
 		for i, line in enumerate(lines):
 			if "###" in line:
+				# 3-1. Insert the last line to list
 				if i == len(lines) - 1 :  # 마지막 줄은 ###으로 끝나야 한다
 					self.insert(key, content.strip())
 				continue
 			if "payment_template" in line:
-				# create pair in examples, key handling
-				key_old = key
+				# 3. Insert a line to list
+				if key != "":
+					self.insert(key, content.strip())
+					content = "" # 초기화
+
+				# 1. Create an empty list
 				line = line.strip()
 				key, index = line.split(',') # index 일단 무시
 				if not key in self.examples:
 					self.examples[key] = []
-				if key_old == "":
-					continue
-
-				# insert list to self.examples[key]
-				self.insert(key_old, content.strip())
-
-				# 초기화
-				content = ""
 			else:
+				# 2. Make a line
 				content = ''.join([content, line])
 
 	def insert(self, key, content):
@@ -67,7 +65,8 @@ class category_template():
 		self.templates.append(payment_template08)
 		
 
-		self.templates.append(payment_template10) # 우리카드
+		self.templates.append(payment_template10) # 우리체크
+		self.templates.append(payment_template11) # 우리카드
 
 		self.templates.append(payment_template20) # 신한카드
 		self.templates.append(payment_template26)
@@ -383,6 +382,53 @@ class payment_template10():
 		print(res)
 
 ##############################################################################################
+class payment_template11():
+	count_approval = 0
+	count_cancel = 0
+	payment = '우리카드'
+	pay_method = ['승인', '취소']
+	approval = r'''우리(?:카드)?\(\d\d\d\d\)(승인)
+\w\*\w님
+(\d{1,3}(?:,\d{3})*)원 .*
+(\d{2}/\d{2} \d{2}:\d{2})
+(.*?)
+누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+	cancel = r'''우리(?:카드)?\(\d\d\d\d\)(취소)
+\w\*\w님
+(\d{1,3}(?:,\d{3})*)원\s?
+(\d{1,3}(?:,\d{3})*)원 .*?
+(\d{2}/\d{2} \d{2}:\d{2})
+
+(.*)\n?(.*)\n?(.*)
+
+(.*?)
+누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+
+	# as-is: approval_cancel, amount, date, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
+	def sort(self, info_unsorted):
+		list = []
+		list.append(info_unsorted[0])
+		list.append(info_unsorted[2])
+		list.append(info_unsorted[1])
+		list.append('')
+		list.append(self.payment)
+		list.append(info_unsorted[3])
+		list.append(info_unsorted[4])
+		list.append(info_unsorted[5])
+		#print(list)
+
+		if(list[0] == self.pay_method[0]):
+			self.count_approval += 1
+		if(list[0] == self.pay_method[1]):
+			self.count_cancel += 1
+		return list
+
+	def print(self):
+		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
+		print(res)
+
+##############################################################################################
 class payment_template20():
 	count_approval = 0
 	count_cancel = 0
@@ -513,13 +559,13 @@ class payment_template30():
 (\d{1,3}(?:,\d{3})*)원 .*?
 (\d{2}/\d{2} \d{2}:\d{2})
 (.*?)
-누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+누적\d{1,3}(?:,\d{3})*원?\n?(.*)\n?(.*)'''
 	cancel = r'''현대카드 M (취소)
 \w\*\w
 (\d{1,3}(?:,\d{3})*)원 .*?
 (\d{2}/\d{2} \d{2}:\d{2})
 (.*?)
-누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+누적\d{1,3}(?:,\d{3})*원?\n?(.*)\n?(.*)'''
 
 	# as-is: approval_cancel, amount, date, agent, category, memo
 	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
@@ -597,18 +643,31 @@ class payment_template36():
 if __name__ == '__main__':
 	categoryTemplate = category_template()
 
+    # Example 통합
 	exampleManager = example_manager()
-	examples = [item for key, value in exampleManager.examples.items() for index, item in enumerate(value)]
+	examples = [ #flatten
+		item 
+		for key, value in exampleManager.examples.items() 
+		for index, item in enumerate(value)
+		]
 	
-	keyIndex = [(key, index) for key, value in exampleManager.examples.items() for index, item in enumerate(value)]
+	keyIndex = [
+		(key, index) 
+		for key, value in exampleManager.examples.items() 
+		for index, item in enumerate(value)
+		]
+	
 	for i, example in enumerate(examples):
-		info = categoryTemplate.processData2Record(example)
+		record = categoryTemplate.processData2Record(example)
 		print(keyIndex[i])
-		if(info == ''):
+		if(record == ''):
 			print(example)
 		else:
-			print(info)
+			print(record)
+	# end, Example 통합
 
+	#info = categoryTemplate.processData2Record(exampleManager.examples["payment_template11"][0])
+	#print(info)
 	#info = categoryTemplate.processData2Record(exampleManager.examples["payment_template10"][1])
 	#print(info)
 	#info = categoryTemplate.processData2Record(exampleManager.examples["payment_template30"][0])

@@ -3,4 +3,5 @@ ledger_user.ini
 *.xlsx
 *.csv
 *.jpg
+*.png
 __pycache__
