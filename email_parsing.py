@@ -1,6 +1,8 @@
 # https://coding-kindergarten.tistory.com/210
 import imaplib
 import email
+from pdfminer.high_level import extract_text
+from io import BytesIO
 
 # vscode에서 현재경로 문제로 인해 추가
 import os
@@ -59,13 +61,31 @@ class Email :
             # message = '\n'.join([message, str(subject)])
 
             # 메일 내용
+            pdf_text = ""
             if email_message.is_multipart():
                 for part in email_message.walk():
                     ctype = part.get_content_type()
-                    cdispo = str(part.get('Content-Disposition'))
+                    cdispo = str(part.get_content_disposition()) #cdispo = str(part.get('Content-Disposition'))
                     if ctype == 'text/plain' and 'attachment' not in cdispo:
                         body = part.get_payload(decode=True)  # decode
-                        break
+                    # 2025.03.11 pdf 첨부파일 있으면 strings_byLine을 messages에 \n 구분해서 줄추가
+                    if cdispo == "attachment":
+                        filename = part.get_filename()
+                        if filename:
+                            # 파일 이름 디코딩
+                            filename, encoding = decode_header(filename)[0]
+                            if isinstance(filename, bytes):
+                                filename = filename.decode(encoding or "utf-8")
+                            
+                            print("Attachment found:", filename)
+
+                            # 8. PDF 내용 읽기
+                            if filename.endswith(".pdf"):
+                                print("Reading PDF content from memory:")
+                                # 첨부파일의 바이트 데이터를 메모리에서 읽음
+                                file_data = part.get_payload(decode=True)
+                                pdf_stream = BytesIO(file_data)
+                                pdf_text = extract_text(pdf_stream)
             else:
                 body = email_message.get_payload(decode=True)
     
@@ -73,8 +93,36 @@ class Email :
             # byte replace 하는 방법 생각중
             body = body.decode('utf-8')
             #print(body)
+            
             message = '\n'.join([message, str(body)])
+            if 'pdf_text' in locals() and pdf_text:  # 2025.03.11
+                message = '\n'.join([message, pdf_text])
             self.messages.append(message.strip())
+            
+            
+            
+            # # 7. 첨부파일 처리
+            # if email_message.is_multipart():
+            #     for part in email_message.walk():
+            #         # 첨부파일인지 확인
+            #         if part.get_content_disposition() == "attachment":
+            #             filename = part.get_filename()
+            #             if filename:
+            #                 # 파일 이름 디코딩
+            #                 filename, encoding = decode_header(filename)[0]
+            #                 if isinstance(filename, bytes):
+            #                     filename = filename.decode(encoding or "utf-8")
+                            
+            #                 print("Attachment found:", filename)
+
+            #                 # 8. PDF 내용 읽기
+            #                 if filename.endswith(".pdf"):
+            #                     print("Reading PDF content from memory:")
+            #                     # 첨부파일의 바이트 데이터를 메모리에서 읽음
+            #                     file_data = part.get_payload(decode=True)
+            #                     pdf_stream = BytesIO(file_data)
+            #                     pdf_text = extract_text(pdf_stream)
+            #                     print(pdf_text)
 
 import configparser
 class MailLogin :
