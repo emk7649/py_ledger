@@ -69,6 +69,7 @@ class category_template():
 
 		self.templates.append(payment_template10) # 우리체크
 		self.templates.append(payment_template11) # 우리카드
+		self.templates.append(payment_template12) # 우리카드 매출접수(교통,통신)
 
 		self.templates.append(payment_template20) # 신한카드
 		self.templates.append(payment_template26)
@@ -84,7 +85,15 @@ class category_template():
 		self.templates.append(payment_template41) # 토스뱅크 모임카드 카카오톡
 
 	def getDate(self, dateStr):
-		if len(dateStr) == 11:  # 06.29 18:00
+		if re.search(r"(\d{2}월 \d{2}일)", dateStr) is not None: # 04월 11일
+			year = datetime.datetime.now().year
+			month = int(dateStr[0:2])
+			day = int(dateStr[4:6])
+			hour = int(0)
+			min = int(0)
+			sec = int(1)
+			date = datetime.datetime(year, month, day, hour, min, sec)
+		elif len(dateStr) == 11:  # 06.29 18:00
 			year = datetime.datetime.now().year
 			month = int(dateStr[0:2])
 			day = int(dateStr[3:5])
@@ -390,8 +399,65 @@ class payment_template11():
 \w\*\w님
 (\d{1,3}(?:,\d{3})*)원 .*
 (\d{2}/\d{2} \d{2}:\d{2})
+(.*?)(?:\n누적\d{1,3}(?:,\d{3})*원)?
+(.*)(?:\n|_.*?\n)?(.*)'''
+
+	cancel = r'''우리(?:카드)?\(\d\d\d\d\)(취소)
+\w\*\w님
+(\d{1,3}(?:,\d{3})*)원\s?
+(\d{1,3}(?:,\d{3})*)원 .*?
+(\d{2}/\d{2} \d{2}:\d{2})
+
+(.*)\n?(.*)\n?(.*)
+
 (.*?)
 누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+
+# 2025.06.08_1 누적 제거된 데이터 출력됨
+#	approval = r'''우리(?:카드)?\(\d\d\d\d\)(승인)
+#\w\*\w님
+#(\d{1,3}(?:,\d{3})*)원 .*
+#(\d{2}/\d{2} \d{2}:\d{2})
+#(.*?)
+#누적\d{1,3}(?:,\d{3})*원\n?(.*)\n?(.*)'''
+
+	# as-is: approval_cancel, amount, date, agent, category, memo
+	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
+	def sort(self, info_unsorted, data):
+		list = []
+		list.append(info_unsorted[0])
+		list.append(info_unsorted[2])
+		list.append(info_unsorted[1])
+		list.append('')
+		list.append(self.payment)
+		list.append(info_unsorted[3])
+		list.append(info_unsorted[4])
+		list.append(info_unsorted[5])
+		#print(list)
+
+		if(list[0] == self.pay_method[0]):
+			self.count_approval += 1
+		if(list[0] == self.pay_method[1]):
+			self.count_cancel += 1
+		return list
+
+	def print(self):
+		res = ''.join([self.payment, ', ', self.pay_method[0], ':', str(self.count_approval), ' ', self.pay_method[1], ':', str(self.count_cancel)])
+		print(res)
+
+##############################################################################################
+class payment_template12():
+	count_approval = 0
+	count_cancel = 0
+	payment = '우리카드'
+	pay_method = ['매출접수', '취소']
+	approval = r'''우리(?:카드)?\(\d\d\d\d\)(매출접수)
+\w\*\w님
+(\d{1,3}(?:,\d{3})*)원(?: .*)?
+(\d{2}월 \d{2}일)(?: .*)?
+(.*?)
+(.*)\n?(.*)'''
+
 	cancel = r'''우리(?:카드)?\(\d\d\d\d\)(취소)
 \w\*\w님
 (\d{1,3}(?:,\d{3})*)원\s?
@@ -650,8 +716,26 @@ class payment_template40():
 	# to-be: approval_cancel, date, amountInKRW, amount, payment, agent, category, memo
 	def sort(self, info_unsorted, data):
 		info_unsorted = data.split('\n')
-		date = re.sub(r"(\d{4})년 (\d{2})월 (\d{2})일 (\d{2})시 (\d{2})분.*", r"\1.\2.\3 \4:\5", info_unsorted[3])
-		match_amountInKRW = re.search(r"\d{1,3}(,\d{3})*", info_unsorted[22])
+  
+		# Determine the index of '카드매출전표'
+		index_card_receipt = info_unsorted.index('카드매출전표')
+    
+		# Set indices dynamically based on the position of '카드매출전표'
+		index_date = index_card_receipt + 1
+		index_price = index_card_receipt + 20
+		index_agent = index_card_receipt + 22
+		if(index_card_receipt == 0):
+			category = ''
+			memo = ''
+		if(index_card_receipt == 1):
+			category = info_unsorted[0]
+			memo = ''
+		if(index_card_receipt == 2):
+			category = info_unsorted[0]
+			memo = info_unsorted[1]
+  
+		date = re.sub(r"(\d{4})년 (\d{2})월 (\d{2})일 (\d{2})시 (\d{2})분.*", r"\1.\2.\3 \4:\5", info_unsorted[index_date])
+		match_amountInKRW = re.search(r"\d{1,3}(,\d{3})*", info_unsorted[index_price])
   
 		list = []
 		list.append('승인')
@@ -659,9 +743,9 @@ class payment_template40():
 		list.append(match_amountInKRW.group())
 		list.append('')
 		list.append(self.payment) # 8, 10
-		list.append(info_unsorted[24])
-		list.append(info_unsorted[0])
-		list.append(info_unsorted[1])
+		list.append(info_unsorted[index_agent])
+		list.append(category)
+		list.append(memo)
 		#print(list)
 
 		self.count_approval += 1
